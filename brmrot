@@ -1,115 +1,132 @@
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local CoreGui = game:GetService("CoreGui")
-
-local LocalPlayer = Players.LocalPlayer
-local FlySettings = { flying = false, speed = 50, up = false, down = false }
-local FlyConnection
-
--- لود کردن WindUI
-local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+local WindUI = loadstring(game:HttpGet(
+    "https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"
+))()
 
 local Window = WindUI:CreateWindow({
-    Title  = "Vitexسسصیص Hub",
-    Icon   = "aperture",
-    Author = "by Vitex",
-    Theme  = "Violet",
+    Title   = "Vitex Hub",
+    Icon    = "aperture",
+    Author  = "by Vitex",
+    Theme   = "Violet",
     Acrylic = true,
+})
+
+Window:Tag({
+    Title  = "Beta-kooon",
+    Icon   = "history",
+    Color  = Color3.fromHex("#5f0188"),
+    Radius = 0,
 })
 
 local Practical = Window:Tab({
     Title = "کاربردی",
-    Icon = "flame",
+    Icon  = "flame",
 })
+Practical:Select()
 
--- منطق پرواز مخصوص موبایل و سیستم
-local function handleFly()
-    local char = LocalPlayer.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") or not char:FindFirstChild("Humanoid") then return end
-    
-    local hrp = char.HumanoidRootPart
-    local humanoid = char.Humanoid
+-- ====== Walk On Air ======
+local RunService           = game:GetService("RunService")
+local ContextActionService = game:GetService("ContextActionService")
+local Players              = game:GetService("Players")
 
-    if FlySettings.flying then
-        if not hrp:FindFirstChild("FlyVelocity") then
-            local bv = Instance.new("BodyVelocity")
-            bv.Name = "FlyVelocity"
-            bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-            bv.Parent = hrp
+local airEnabled   = false
+local isRising     = false
+local risePart     = nil
+local riseConn     = nil
+local platformPart = nil
+local platformConn = nil
 
-            local bg = Instance.new("BodyGyro")
-            bg.Name = "FlyGyro"
-            bg.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
-            bg.P = 9000
-            bg.Parent = hrp
+local RISE_SPEED   = 30  -- سرعت بالا رفتن
+local PLATFORM_Y   = 3   -- فاصله پلتفرم از زیر کاراکتر
 
-            humanoid.PlatformStand = true
-        end
-
-        -- جهت حرکت بر اساس جوی‌استیک موبایل یا کیبورد
-        local moveDir = humanoid.MoveDirection * FlySettings.speed
-        local verticalMove = Vector3.new(0, 0, 0)
-        
-        if FlySettings.up then verticalMove = Vector3.new(0, FlySettings.speed, 0) end
-        if FlySettings.down then verticalMove = Vector3.new(0, -FlySettings.speed, 0) end
-
-        hrp.FlyVelocity.Velocity = moveDir + verticalMove
-        hrp.FlyGyro.CFrame = workspace.CurrentCamera.CFrame
-    else
-        if hrp:FindFirstChild("FlyVelocity") then hrp.FlyVelocity:Destroy() end
-        if hrp:FindFirstChild("FlyGyro") then hrp.FlyGyro:Destroy() end
-        humanoid.PlatformStand = false
-    end
+local function handleJump(_, inputState)
+    isRising = (inputState == Enum.UserInputState.Begin)
 end
 
--- ایجاد دکمه‌های کنترل ارتفاع برای موبایل
-local function createMobileControls(visible)
-    if CoreGui:FindFirstChild("FlyControls") then CoreGui.FlyControls:Destroy() end
-    if not visible then return end
+local function startAirWalk()
+    local player    = Players.LocalPlayer
+    local character = player.Character or player.CharacterAdded:Wait()
+    local hrp       = character:WaitForChild("HumanoidRootPart")
+    local humanoid  = character:WaitForChild("Humanoid")
 
-    local sg = Instance.new("ScreenGui", CoreGui)
-    sg.Name = "FlyControls"
-    
-    local upFrame = Instance.new("TextButton", sg)
-    upFrame.Size = UDim2.new(0, 60, 0, 60)
-    upFrame.Position = UDim2.new(0.8, 0, 0.5, 0)
-    upFrame.Text = "UP"
-    upFrame.BackgroundColor3 = Color3.fromRGB(95, 1, 136)
-    
-    local downFrame = Instance.new("TextButton", sg)
-    downFrame.Size = UDim2.new(0, 60, 0, 60)
-    downFrame.Position = UDim2.new(0.8, 0, 0.65, 0)
-    downFrame.Text = "DOWN"
-    downFrame.BackgroundColor3 = Color3.fromRGB(95, 1, 136)
+    -- پلتفرم نامرئی زیر پای کاراکتر
+    platformPart          = Instance.new("Part")
+    platformPart.Size     = Vector3.new(4, 0.2, 4)
+    platformPart.Anchored = true
+    platformPart.CanCollide = true
+    platformPart.Transparency = 1
+    platformPart.Name     = "AirPlatform"
+    platformPart.Parent   = workspace
 
-    upFrame.MouseButton1Down:Connect(function() FlySettings.up = true end)
-    upFrame.MouseButton1Up:Connect(function() FlySettings.up = false end)
-    downFrame.MouseButton1Down:Connect(function() FlySettings.down = true end)
-    downFrame.MouseButton1Up:Connect(function() FlySettings.down = false end)
-end
+    -- BodyVelocity برای بالا رفتن با جامپ
+    risePart              = Instance.new("BodyVelocity")
+    risePart.Velocity     = Vector3.zero
+    risePart.MaxForce     = Vector3.new(0, 1e5, 0)
+    risePart.Parent       = hrp
 
--- تاگل پرواز طبق فرمت درخواستی
-Practical:Toggle({
-    Title = "فعال‌سازی پرواز (Mobile Fix)",
-    Callback = function(state)
-        FlySettings.flying = state
-        createMobileControls(state) -- نمایش دکمه‌های بالا/پایین در موبایل
-        
-        if state then
-            FlyConnection = RunService.RenderStepped:Connect(handleFly)
+    -- هر فریم: پلتفرم رو زیر کاراکتر نگه دار و بالا رفتن رو handle کن
+    platformConn = RunService.Heartbeat:Connect(function()
+        if not airEnabled then return end
+
+        -- پلتفرم دقیقاً زیر کاراکتر
+        platformPart.CFrame = CFrame.new(
+            hrp.Position.X,
+            hrp.Position.Y - PLATFORM_Y,
+            hrp.Position.Z
+        )
+
+        -- اگه جامپ گرفته شده بالا بره
+        if isRising then
+            risePart.Velocity  = Vector3.new(0, RISE_SPEED, 0)
+            risePart.MaxForce  = Vector3.new(0, 1e5, 0)
         else
-            if FlyConnection then FlyConnection:Disconnect() end
-            handleFly()
+            -- روی هوا ثابت بمون (بدون گرانش)
+            risePart.Velocity  = Vector3.zero
+            risePart.MaxForce  = Vector3.new(0, 1e4, 0)
         end
-    end
-})
+    end)
 
-Practical:Slider({
-    Title = "سرعت پرواز",
-    Min = 16,
-    Max = 300,
-    Value = 50,
-    Callback = function(value)
-        FlySettings.speed = value
+    -- bind دکمه جامپ (هم موبایل هم کیبورد)
+    ContextActionService:BindAction(
+        "AirJump",
+        handleJump,
+        false, -- دکمه جدید نمیسازه، از دکمه جامپ خود بازی استفاده میکنه
+        Enum.KeyCode.Space,
+        Enum.PlayerActions.CharacterJump
+    )
+end
+
+local function stopAirWalk()
+    isRising = false
+
+    ContextActionService:UnbindAction("AirJump")
+
+    if platformConn then
+        platformConn:Disconnect()
+        platformConn = nil
     end
+
+    if risePart then
+        risePart:Destroy()
+        risePart = nil
+    end
+
+    if platformPart then
+        platformPart:Destroy()
+        platformPart = nil
+    end
+end
+
+local AirToggle = Practical:Toggle({
+    Title    = "راه رفتن روی هوا",
+    Desc     = "جامپ بزن تا بری بالا، روی هوا راه برو",
+    Icon     = "footprints",
+    Value    = false,
+    Callback = function(state)
+        airEnabled = state
+        if state then
+            startAirWalk()
+        else
+            stopAirWalk()
+        end
+    end,
 })

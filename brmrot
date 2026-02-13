@@ -1,1 +1,24 @@
-wfrejntul7ltgtkmyuikfgkuijhtfkmuvidl,
+local WindUI = loadstring(game:HttpGet(
+    "https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"
+))()
+
+local Window = WindUI:CreateWindow({
+    Title  = "Vitex Hub",
+    Icon   = "aperture",
+    Author = "by Vitex",
+    Theme  = "Violet",
+    Acrylic = true,
+})
+
+Window:Tag({
+    Title = "Beta-kooon",
+    Icon = "history",
+    Color = Color3.fromHex("#5f0188"),
+    Radius = 0,
+})
+
+local Practical = Window:Tab({
+    Title = "کاربردی",
+    Icon = "flame",
+})
+Practical:Select()

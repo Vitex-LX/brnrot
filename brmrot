@@ -1,132 +1,87 @@
-local WindUI = loadstring(game:HttpGet(
-    "https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"
-))()
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+local SelectedPlayerName = nil
+
+-- لود کردن WindUI
+local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
 
 local Window = WindUI:CreateWindow({
-    Title   = "Vitex Hub",
-    Icon    = "aperture",
-    Author  = "by Vitex",
-    Theme   = "Violet",
+    Title  = "Vitex Hub",
+    Icon   = "aperture",
+    Author = "by Vitex",
+    Theme  = "Violet",
     Acrylic = true,
 })
 
-Window:Tag({
-    Title  = "Beta-kooon",
-    Icon   = "history",
-    Color  = Color3.fromHex("#5f0188"),
-    Radius = 0,
+local FlingTab = Window:Tab({
+    Title = "فلینگ (Fling)",
+    Icon = "user-minus",
 })
 
-local Practical = Window:Tab({
-    Title = "کاربردی",
-    Icon  = "flame",
+-- تابع برای گرفتن لیست نام پلیرها
+local function getPlayersList()
+    local tbl = {}
+    for _, v in pairs(Players:GetPlayers()) do
+        if v ~= LocalPlayer then
+            table.insert(tbl, v.Name)
+        end
+    end
+    return tbl
+end
+
+-- دراپ‌داون انتخاب پلیر
+local PlayerList = FlingTab:Dropdown({
+    Title = "انتخاب هدف",
+    Options = getPlayersList(),
+    Callback = function(selected)
+        SelectedPlayerName = selected
+    end
 })
-Practical:Select()
 
--- ====== Walk On Air ======
-local RunService           = game:GetService("RunService")
-local ContextActionService = game:GetService("ContextActionService")
-local Players              = game:GetService("Players")
+-- دکمه رفرش کردن لیست
+local RefreshBtn = FlingTab:Button({
+    Title = "بروزرسانی لیست پلیرها",
+    Callback = function()
+        PlayerList:Refresh(getPlayersList())
+    end
+})
 
-local airEnabled   = false
-local isRising     = false
-local risePart     = nil
-local riseConn     = nil
-local platformPart = nil
-local platformConn = nil
+-- دکمه اصلی فلینگ
+local FlingBtn = FlingTab:Button({
+    Title = "شروع عملیات فلینگ",
+    Callback = function()
+        local targetPlayer = Players:FindFirstChild(SelectedPlayerName)
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        
+        if targetPlayer and targetPlayer.Character and hrp then
+            local targetHrp = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if targetHrp then
+                -- ایجاد چرخش شدید برای فلینگ کردن
+                local bfv = Instance.new("BodyAngularVelocity")
+                bfv.Name = "FlingForce"
+                bfv.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+                bfv.P = 10^10
+                bfv.AngularVelocity = Vector3.new(0, 99999, 0) -- چرخش افقی فوق سریع
+                bfv.Parent = hrp
 
-local RISE_SPEED   = 30  -- سرعت بالا رفتن
-local PLATFORM_Y   = 3   -- فاصله پلتفرم از زیر کاراکتر
+                -- Tween کردن به سمت پلیر
+                local tweenInfo = TweenInfo.new(1.5, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+                local tween = TweenService:Create(hrp, tweenInfo, {CFrame = targetHrp.CFrame})
+                
+                tween:Play()
 
-local function handleJump(_, inputState)
-    isRising = (inputState == Enum.UserInputState.Begin)
-end
-
-local function startAirWalk()
-    local player    = Players.LocalPlayer
-    local character = player.Character or player.CharacterAdded:Wait()
-    local hrp       = character:WaitForChild("HumanoidRootPart")
-    local humanoid  = character:WaitForChild("Humanoid")
-
-    -- پلتفرم نامرئی زیر پای کاراکتر
-    platformPart          = Instance.new("Part")
-    platformPart.Size     = Vector3.new(4, 0.2, 4)
-    platformPart.Anchored = true
-    platformPart.CanCollide = true
-    platformPart.Transparency = 1
-    platformPart.Name     = "AirPlatform"
-    platformPart.Parent   = workspace
-
-    -- BodyVelocity برای بالا رفتن با جامپ
-    risePart              = Instance.new("BodyVelocity")
-    risePart.Velocity     = Vector3.zero
-    risePart.MaxForce     = Vector3.new(0, 1e5, 0)
-    risePart.Parent       = hrp
-
-    -- هر فریم: پلتفرم رو زیر کاراکتر نگه دار و بالا رفتن رو handle کن
-    platformConn = RunService.Heartbeat:Connect(function()
-        if not airEnabled then return end
-
-        -- پلتفرم دقیقاً زیر کاراکتر
-        platformPart.CFrame = CFrame.new(
-            hrp.Position.X,
-            hrp.Position.Y - PLATFORM_Y,
-            hrp.Position.Z
-        )
-
-        -- اگه جامپ گرفته شده بالا بره
-        if isRising then
-            risePart.Velocity  = Vector3.new(0, RISE_SPEED, 0)
-            risePart.MaxForce  = Vector3.new(0, 1e5, 0)
+                -- بعد از اتمام حرکت، نیرو رو حذف کن تا خودت نپری بیرون
+                tween.Completed:Connect(function()
+                    task.wait(0.5)
+                    if bfv then bfv:Destroy() end
+                end)
+            end
         else
-            -- روی هوا ثابت بمون (بدون گرانش)
-            risePart.Velocity  = Vector3.zero
-            risePart.MaxForce  = Vector3.new(0, 1e4, 0)
+            print("لطفاً ابتدا یک پلیر را انتخاب کنید.")
         end
-    end)
-
-    -- bind دکمه جامپ (هم موبایل هم کیبورد)
-    ContextActionService:BindAction(
-        "AirJump",
-        handleJump,
-        false, -- دکمه جدید نمیسازه، از دکمه جامپ خود بازی استفاده میکنه
-        Enum.KeyCode.Space,
-        Enum.PlayerActions.CharacterJump
-    )
-end
-
-local function stopAirWalk()
-    isRising = false
-
-    ContextActionService:UnbindAction("AirJump")
-
-    if platformConn then
-        platformConn:Disconnect()
-        platformConn = nil
     end
-
-    if risePart then
-        risePart:Destroy()
-        risePart = nil
-    end
-
-    if platformPart then
-        platformPart:Destroy()
-        platformPart = nil
-    end
-end
-
-local AirToggle = Practical:Toggle({
-    Title    = "راه رفتن روی هوا",
-    Desc     = "جامپ بزن تا بری بالا، روی هوا راه برو",
-    Icon     = "footprints",
-    Value    = false,
-    Callback = function(state)
-        airEnabled = state
-        if state then
-            startAirWalk()
-        else
-            stopAirWalk()
-        end
-    end,
 })

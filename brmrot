@@ -1,87 +1,198 @@
-local Players = game:GetService("Players")
-local TweenService = game:GetService("TweenService")
-local RunService = game:GetService("RunService")
-local LocalPlayer = Players.LocalPlayer
-
-local SelectedPlayerName = nil
-
--- لود کردن WindUI
-local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+local WindUI = loadstring(game:HttpGet(
+    "https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"
+))()
 
 local Window = WindUI:CreateWindow({
-    Title  = "Vitex Hub",
-    Icon   = "aperture",
-    Author = "by Vitex",
-    Theme  = "Violet",
+    Title   = "Vitex Hub",
+    Icon    = "aperture",
+    Author  = "by Vitex",
+    Theme   = "Violet",
     Acrylic = true,
 })
 
-local FlingTab = Window:Tab({
-    Title = "فلینگ (Fling)",
-    Icon = "user-minus",
+Window:Tag({
+    Title  = "Beta-kooon",
+    Icon   = "history",
+    Color  = Color3.fromHex("#5f0188"),
+    Radius = 0,
 })
 
--- تابع برای گرفتن لیست نام پلیرها
-local function getPlayersList()
-    local tbl = {}
-    for _, v in pairs(Players:GetPlayers()) do
-        if v ~= LocalPlayer then
-            table.insert(tbl, v.Name)
-        end
-    end
-    return tbl
+local Practical = Window:Tab({
+    Title = "کاربردی",
+    Icon  = "flame",
+})
+Practical:Select()
+
+-- ====== Walk On Air ======
+local RunService            = game:GetService("RunService")
+local ContextActionService  = game:GetService("ContextActionService")
+local Players               = game:GetService("Players")
+local TweenService          = game:GetService("TweenService")
+
+local airEnabled   = false
+local isRising     = false
+local risePart     = nil
+local platformConn = nil
+local platformPart = nil
+
+local RISE_SPEED = 30
+local PLATFORM_Y = 3
+
+local function handleJump(_, inputState)
+    isRising = (inputState == Enum.UserInputState.Begin)
 end
 
--- دراپ‌داون انتخاب پلیر
-local PlayerList = FlingTab:Dropdown({
-    Title = "انتخاب هدف",
-    Options = getPlayersList(),
-    Callback = function(selected)
-        SelectedPlayerName = selected
-    end
-})
+local function startAirWalk()
+    local player    = Players.LocalPlayer
+    local character = player.Character or player.CharacterAdded:Wait()
+    local hrp       = character:WaitForChild("HumanoidRootPart")
 
--- دکمه رفرش کردن لیست
-local RefreshBtn = FlingTab:Button({
-    Title = "بروزرسانی لیست پلیرها",
-    Callback = function()
-        PlayerList:Refresh(getPlayersList())
-    end
-})
+    platformPart              = Instance.new("Part")
+    platformPart.Size         = Vector3.new(4, 0.2, 4)
+    platformPart.Anchored     = true
+    platformPart.CanCollide   = true
+    platformPart.Transparency = 1
+    platformPart.Name         = "AirPlatform"
+    platformPart.Parent       = workspace
 
--- دکمه اصلی فلینگ
-local FlingBtn = FlingTab:Button({
-    Title = "شروع عملیات فلینگ",
-    Callback = function()
-        local targetPlayer = Players:FindFirstChild(SelectedPlayerName)
-        local char = LocalPlayer.Character
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        
-        if targetPlayer and targetPlayer.Character and hrp then
-            local targetHrp = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
-            if targetHrp then
-                -- ایجاد چرخش شدید برای فلینگ کردن
-                local bfv = Instance.new("BodyAngularVelocity")
-                bfv.Name = "FlingForce"
-                bfv.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
-                bfv.P = 10^10
-                bfv.AngularVelocity = Vector3.new(0, 99999, 0) -- چرخش افقی فوق سریع
-                bfv.Parent = hrp
+    risePart           = Instance.new("BodyVelocity")
+    risePart.Velocity  = Vector3.zero
+    risePart.MaxForce  = Vector3.new(0, 1e5, 0)
+    risePart.Parent    = hrp
 
-                -- Tween کردن به سمت پلیر
-                local tweenInfo = TweenInfo.new(1.5, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
-                local tween = TweenService:Create(hrp, tweenInfo, {CFrame = targetHrp.CFrame})
-                
-                tween:Play()
-
-                -- بعد از اتمام حرکت، نیرو رو حذف کن تا خودت نپری بیرون
-                tween.Completed:Connect(function()
-                    task.wait(0.5)
-                    if bfv then bfv:Destroy() end
-                end)
-            end
+    platformConn = RunService.Heartbeat:Connect(function()
+        if not airEnabled then return end
+        platformPart.CFrame = CFrame.new(
+            hrp.Position.X,
+            hrp.Position.Y - PLATFORM_Y,
+            hrp.Position.Z
+        )
+        if isRising then
+            risePart.Velocity = Vector3.new(0, RISE_SPEED, 0)
+            risePart.MaxForce = Vector3.new(0, 1e5, 0)
         else
-            print("لطفاً ابتدا یک پلیر را انتخاب کنید.")
+            risePart.Velocity = Vector3.zero
+            risePart.MaxForce = Vector3.new(0, 1e4, 0)
+        end
+    end)
+
+    ContextActionService:BindAction("AirJump", handleJump, false,
+        Enum.KeyCode.Space, Enum.PlayerActions.CharacterJump)
+end
+
+local function stopAirWalk()
+    isRising = false
+    ContextActionService:UnbindAction("AirJump")
+    if platformConn then platformConn:Disconnect() platformConn = nil end
+    if risePart     then risePart:Destroy()        risePart     = nil end
+    if platformPart then platformPart:Destroy()    platformPart = nil end
+end
+
+local AirToggle = Practical:Toggle({
+    Title    = "راه رفتن روی هوا",
+    Callback = function(state)
+        airEnabled = state
+        if state then startAirWalk() else stopAirWalk() end
+    end
+})
+
+-- ====== Fling Players ======
+local Combat = Window:Tab({
+    Title = "فایت",
+    Icon  = "sword",
+})
+
+local localPlayer    = Players.LocalPlayer
+local selectedTarget = nil
+
+local function getPlayerNames()
+    local names = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= localPlayer then
+            table.insert(names, p.Name)
+        end
+    end
+    if #names == 0 then
+        table.insert(names, "پلیری نیست")
+    end
+    return names
+end
+
+local function flingPlayer(targetPlayer)
+    local myChar     = localPlayer.Character
+    local targetChar = targetPlayer.Character
+    if not myChar or not targetChar then return end
+
+    local myHRP     = myChar:FindFirstChild("HumanoidRootPart")
+    local targetHRP = targetChar:FindFirstChild("HumanoidRootPart")
+    if not myHRP or not targetHRP then return end
+
+    local targetPos = targetHRP.CFrame * CFrame.new(0, 0, 2)
+    local tweenInfo = TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    local tween     = TweenService:Create(myHRP, tweenInfo, { CFrame = targetPos })
+
+    myHRP.Anchored = true
+    tween:Play()
+
+    tween.Completed:Connect(function()
+        myHRP.Anchored = false
+
+        local bv    = Instance.new("BodyVelocity")
+        bv.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+        bv.Velocity = Vector3.new(
+            math.random(-120, 120),
+            math.random(180, 260),
+            math.random(-120, 120)
+        )
+        bv.Parent = targetHRP
+
+        local bav             = Instance.new("BodyAngularVelocity")
+        bav.MaxTorque         = Vector3.new(1e6, 1e6, 1e6)
+        bav.AngularVelocity   = Vector3.new(
+            math.random(40, 80),
+            math.random(40, 80),
+            math.random(40, 80)
+        )
+        bav.Parent = targetHRP
+
+        task.delay(0.15, function()
+            if bv  and bv.Parent  then bv:Destroy()  end
+            if bav and bav.Parent then bav:Destroy()  end
+        end)
+    end)
+end
+
+local PlayerDropdown = Combat:Dropdown({
+    Title    = "انتخاب پلیر",
+    Values   = getPlayerNames(),
+    Value    = "پلیری نیست",
+    Callback = function(value)
+        selectedTarget = Players:FindFirstChild(value)
+    end
+})
+
+local RefreshButton = Combat:Button({
+    Title    = "رفرش لیست",
+    Callback = function()
+        PlayerDropdown:Refresh(getPlayerNames(), true)
+        selectedTarget = nil
+    end
+})
+
+local FlingButton = Combat:Button({
+    Title    = "فلینگ",
+    Callback = function()
+        if selectedTarget and selectedTarget.Parent then
+            flingPlayer(selectedTarget)
         end
     end
 })
+
+Players.PlayerAdded:Connect(function()
+    PlayerDropdown:Refresh(getPlayerNames(), true)
+end)
+
+Players.PlayerRemoving:Connect(function()
+    PlayerDropdown:Refresh(getPlayerNames(), true)
+    selectedTarget = nil
+end)
